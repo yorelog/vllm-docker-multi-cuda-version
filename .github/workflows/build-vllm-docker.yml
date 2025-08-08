@@ -13,10 +13,15 @@ env:
   IMAGE_NAME: yoce/vllm
   CUDA_VERSION: 12.1.1
   PYTHON_VERSION: 3.12
+  # Disk space optimization
+  DOCKER_BUILDKIT: 1
+  BUILDKIT_PROGRESS: plain
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
     
     steps:
     - name: Checkout code
@@ -49,12 +54,54 @@ jobs:
           type=raw,value=cuda${{ env.CUDA_VERSION }}-py${{ env.PYTHON_VERSION }}
           type=raw,value=latest,enable={{is_default_branch}}
 
-    - name: Free disk space
+    - name: Free disk space (comprehensive cleanup)
       run: |
-        sudo rm -rf /usr/local/lib/android /opt/ghc /usr/local/.ghcup
-        sudo apt-get clean
-        docker system prune -af
+        echo "=== Initial disk usage ==="
         df -h
+        
+        echo "=== Removing unnecessary packages and files ==="
+        # Remove large packages and tools not needed for building
+        sudo rm -rf /usr/local/lib/android
+        sudo rm -rf /opt/ghc
+        sudo rm -rf /usr/local/.ghcup
+        sudo rm -rf /usr/share/dotnet
+        sudo rm -rf /opt/hostedtoolcache
+        sudo rm -rf /usr/local/share/boost
+        sudo rm -rf /usr/local/graalvm
+        sudo rm -rf /usr/local/share/powershell
+        sudo rm -rf /usr/local/share/chromium
+        sudo rm -rf /usr/local/lib/node_modules
+        
+        echo "=== Cleaning package cache ==="
+        sudo apt-get clean
+        sudo apt-get autoremove -y
+        sudo apt-get autoclean
+        
+        echo "=== Docker cleanup ==="
+        # More aggressive Docker cleanup
+        docker system prune -af --volumes
+        docker builder prune -af
+        # Remove unused Docker images and containers
+        docker image prune -af
+        docker container prune -f
+        
+        echo "=== Clean pip and npm caches ==="
+        sudo rm -rf ~/.cache/pip
+        sudo rm -rf ~/.npm
+        sudo rm -rf /tmp/*
+        
+        echo "=== Final disk usage ==="
+        df -h
+
+    - name: Monitor disk usage during build
+      run: |
+        # Start disk monitoring in background
+        while true; do
+          echo "$(date): Disk usage:"
+          df -h | grep -E "(Filesystem|/dev/)"
+          sleep 30
+        done &
+        echo $! > /tmp/disk_monitor.pid
 
     - name: Build and push Docker image
       id: build
@@ -70,11 +117,27 @@ jobs:
         build-args: |
           CUDA_VERSION=${{ env.CUDA_VERSION }}
           PYTHON_VERSION=${{ env.PYTHON_VERSION }}
-          max_jobs=2
+          max_jobs=1
           nvcc_threads=2
+          VLLM_MAX_SIZE_MB=500
+          RUN_WHEEL_CHECK=false
         cache-from: type=gha
         cache-to: type=gha,mode=max
+        outputs: type=image,push=${{ github.event_name != 'pull_request' }}
 
     - name: Image digest
       if: ${{ github.event_name != 'pull_request' }}
-      run: echo ${{ steps.build.outputs.digest }}
+      run: |
+        # Stop disk monitoring
+        if [ -f /tmp/disk_monitor.pid ]; then
+          kill $(cat /tmp/disk_monitor.pid) || true
+          rm -f /tmp/disk_monitor.pid
+        fi
+        echo ${{ steps.build.outputs.digest }}
+
+    - name: Final cleanup
+      if: always()
+      run: |
+        # Final cleanup regardless of build result
+        docker system prune -af --volumes || true
+        df -h
