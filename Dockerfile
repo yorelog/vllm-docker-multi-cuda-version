@@ -65,9 +65,9 @@ ENV UV_HTTP_TIMEOUT=500
 ENV UV_INDEX_STRATEGY="unsafe-best-match"
 ENV UV_LINK_MODE=copy
 
-# Upgrade to GCC 10 to avoid compiler issues
-RUN apt-get install -y gcc-10 g++-10 \
-    && update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 110 --slave /usr/bin/g++ g++ /usr/bin/g++-10
+# Install build essentials and available compilers
+RUN apt-get install -y build-essential gcc g++ \
+    && gcc --version && g++ --version
 
 # Workaround for triton/pytorch issues
 RUN ldconfig /usr/local/cuda-$(echo $CUDA_VERSION | cut -d. -f1,2)/compat/
