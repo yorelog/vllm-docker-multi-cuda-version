@@ -120,10 +120,8 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     # Clone vLLM repository for building
     git clone --depth 1 --branch main https://github.com/vllm-project/vllm.git /tmp/vllm && \
     cp -r /tmp/vllm/* . && \
-    rm -rf /tmp/vllm
-
-# Install build dependencies
-RUN --mount=type=cache,target=/root/.cache/uv \
+    rm -rf /tmp/vllm && \
+    # Install build dependencies
     uv pip install --system -r requirements/build.txt \
     --extra-index-url ${PYTORCH_CUDA_INDEX_BASE_URL}/cu$(echo $CUDA_VERSION | cut -d. -f1,2 | tr -d '.')
 
@@ -136,7 +134,6 @@ ENV NVCC_THREADS=$nvcc_threads
 ENV CCACHE_DIR=/root/.cache/ccache
 RUN --mount=type=cache,target=/root/.cache/ccache \
     --mount=type=cache,target=/root/.cache/uv \
-    --mount=type=bind,source=.git,target=.git,ro  \
     # Clean any existing CMake artifacts
     rm -rf .deps && \
     mkdir -p .deps && \
