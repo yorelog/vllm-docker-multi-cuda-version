@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  vllm:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        CUDA_VERSION: 12.1.1
+        PYTHON_VERSION: 3.12
+    image: vllm:cuda12.1-latest
+    container_name: vllm-server
+    ports:
+      - "8000:8000"
+    environment:
+      - CUDA_VISIBLE_DEVICES=0
+      - VLLM_USAGE_SOURCE=docker-compose
+    volumes:
+      - ~/.cache/huggingface:/root/.cache/huggingface
+    command: ["--model", "microsoft/DialoGPT-medium", "--host", "0.0.0.0", "--port", "8000"]
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
