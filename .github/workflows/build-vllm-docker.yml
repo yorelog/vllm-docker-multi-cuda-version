@@ -20,6 +20,7 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 360  # Set 6 hour timeout for vLLM compilation
     strategy:
       fail-fast: false
     
@@ -106,6 +107,7 @@ jobs:
     - name: Build and push Docker image
       id: build
       uses: docker/build-push-action@v5
+      timeout-minutes: 300  # 5 hour timeout specifically for build step
       with:
         context: .
         file: ./Dockerfile
@@ -118,7 +120,7 @@ jobs:
           CUDA_VERSION=${{ env.CUDA_VERSION }}
           PYTHON_VERSION=${{ env.PYTHON_VERSION }}
           max_jobs=1
-          nvcc_threads=2
+          nvcc_threads=1
           VLLM_MAX_SIZE_MB=500
           RUN_WHEEL_CHECK=false
         cache-from: type=gha
