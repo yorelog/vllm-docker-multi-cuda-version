@@ -65,9 +65,11 @@ ENV UV_HTTP_TIMEOUT=500
 ENV UV_INDEX_STRATEGY="unsafe-best-match"
 ENV UV_LINK_MODE=copy
 
-# Install build essentials and available compilers
-RUN apt-get install -y build-essential gcc g++ \
-    && gcc --version && g++ --version
+# Upgrade to build-essential instead of specific GCC versions
+RUN apt-get update -y && \
+    apt-get install -y build-essential && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
 # Workaround for triton/pytorch issues
 RUN ldconfig /usr/local/cuda-$(echo $CUDA_VERSION | cut -d. -f1,2)/compat/
@@ -84,10 +86,11 @@ RUN --mount=type=cache,target=/root/.cache/uv \
         torchaudio==2.7.1 \
     && python3 -c "import torch; print(f'PyTorch version: {torch.__version__}'); print(f'CUDA available: {torch.cuda.is_available()}')"
 
-# Set CUDA arch list optimized for A100/A800/H20 datacenter GPUs
+# Set CUDA arch list optimized for A100/A800/H20 datacenter GPUs only
+# This reduces build time and wheel size significantly
 # 8.0: A100, A800 (Ampere)
-# 9.0a: H100, H20 (Hopper)
-ARG torch_cuda_arch_list='8.0 9.0a'
+# 9.0a: H100, H20 (Hopper) 
+ARG torch_cuda_arch_list='8.0;9.0a'
 ENV TORCH_CUDA_ARCH_LIST=${torch_cuda_arch_list}
 
 #################### WHEEL BUILD IMAGE ####################
@@ -109,10 +112,10 @@ RUN --mount=type=cache,target=/root/.cache/uv \
         --extra-index-url ${PYTORCH_CUDA_INDEX_BASE_URL}/cu121 && \
     echo "Build dependencies installed"
 
-# Build configuration - limit resources to prevent OOM
-ARG max_jobs=1
+# Build configuration - optimized for datacenter GPUs
+ARG max_jobs=2
 ENV MAX_JOBS=${max_jobs}
-ARG nvcc_threads=2
+ARG nvcc_threads=8
 ENV NVCC_THREADS=$nvcc_threads
 
 # Build vLLM wheel with reduced memory usage
@@ -193,7 +196,7 @@ RUN --mount=type=bind,from=build,src=/workspace/vllm/dist,target=/vllm-workspace
     echo "Cleaning up after installation..." && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* && \
-    && python3 -c "import vllm; print(f'vLLM installed successfully')" && \
+    python3 -c "import vllm; print(f'vLLM installed successfully')" && \
     echo "Final cleanup..." && \
     # Clean up any remaining build artifacts
     find /usr/local -name "*.pyc" -delete && \
