@@ -91,6 +91,10 @@ jobs:
         sudo rm -rf ~/.npm
         sudo rm -rf /tmp/*
         
+        echo "=== Setup build cache directories on /mnt ==="
+        sudo mkdir -p /mnt/build-cache/{sccache,ccache,uv,triton}
+        sudo chown -R runner:runner /mnt/build-cache
+        
         echo "=== Final disk usage ==="
         df -h
 
@@ -121,7 +125,8 @@ jobs:
           PYTHON_VERSION=${{ env.PYTHON_VERSION }}
           max_jobs=1
           nvcc_threads=1
-          VLLM_MAX_SIZE_MB=500
+          USE_SCCACHE=1
+          VLLM_MAX_SIZE_MB=400
           RUN_WHEEL_CHECK=false
         cache-from: type=gha
         cache-to: type=gha,mode=max
