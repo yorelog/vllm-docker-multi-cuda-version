@@ -1,12 +1,13 @@
-# Multi-stage Dockerfile for vLLM with CUDA 12.1 support
-# Based on https://github.com/vllm-project/vllm/blob/main/docker/Dockerfile
+# Multi-stage Dockerfile for vLLM v0.10.0 with CUDA 12.1 support
+# Optimized for A100/A800/H20 datacenter GPUs
+# Based on https://github.com/vllm-project/vllm/blob/v0.10.0/docker/Dockerfile
 
 ARG CUDA_VERSION=12.1.1
 ARG PYTHON_VERSION=3.12
 
-# Use official CUDA base images
+# Use official CUDA base images - follow vLLM official pattern
 ARG BUILD_BASE_IMAGE=nvidia/cuda:${CUDA_VERSION}-devel-ubuntu20.04
-ARG FINAL_BASE_IMAGE=nvidia/cuda:${CUDA_VERSION}-runtime-ubuntu22.04
+ARG FINAL_BASE_IMAGE=nvidia/cuda:${CUDA_VERSION}-devel-ubuntu22.04
 
 #################### BUILD ARGUMENTS ####################
 ARG GET_PIP_URL="https://bootstrap.pypa.io/get-pip.py"
@@ -60,14 +61,16 @@ ARG PIP_KEYRING_PROVIDER UV_KEYRING_PROVIDER
 RUN --mount=type=cache,target=/root/.cache/uv \
     python3 -m pip install uv
 
-# Configure uv environment
+# Configure uv environment following vLLM official settings
 ENV UV_HTTP_TIMEOUT=500
 ENV UV_INDEX_STRATEGY="unsafe-best-match"
 ENV UV_LINK_MODE=copy
 
-# Upgrade to build-essential instead of specific GCC versions
+# Upgrade to GCC 10 following vLLM official pattern for CUTLASS kernels
 RUN apt-get update -y && \
-    apt-get install -y build-essential && \
+    apt-get install -y gcc-10 g++-10 && \
+    update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 110 --slave /usr/bin/g++ g++ /usr/bin/g++-10 && \
+    gcc --version && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
@@ -76,8 +79,8 @@ RUN ldconfig /usr/local/cuda-$(echo $CUDA_VERSION | cut -d. -f1,2)/compat/
 
 WORKDIR /workspace
 
-# Install PyTorch and dependencies compatible with CUDA 12.1
-# Note: CUDA 12.1 uses cu121 index
+# Install PyTorch and dependencies compatible with CUDA 12.1 following vLLM official requirements
+# Note: CUDA 12.1 uses cu121 index for optimal datacenter GPU support
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --system \
         --extra-index-url ${PYTORCH_CUDA_INDEX_BASE_URL}/cu121 \
@@ -86,10 +89,11 @@ RUN --mount=type=cache,target=/root/.cache/uv \
         torchaudio==2.7.1 \
     && python3 -c "import torch; print(f'PyTorch version: {torch.__version__}'); print(f'CUDA available: {torch.cuda.is_available()}')"
 
-# Set CUDA arch list optimized for A100/A800/H20 datacenter GPUs only
-# This reduces build time and wheel size significantly
-# 8.0: A100, A800 (Ampere)
-# 9.0a: H100, H20 (Hopper) 
+# Set CUDA arch list optimized for A100/A800/H20 datacenter GPUs only (vLLM v0.10.0 pattern)
+# This reduces build time and wheel size significantly compared to full arch list
+# 8.0: A100, A800 (Ampere architecture) 
+# 9.0a: H100, H20 (Hopper architecture)
+# Official vLLM uses comprehensive list but we optimize for datacenter only
 ARG torch_cuda_arch_list='8.0;9.0a'
 ENV TORCH_CUDA_ARCH_LIST=${torch_cuda_arch_list}
 
@@ -112,23 +116,23 @@ RUN --mount=type=cache,target=/root/.cache/uv \
         --extra-index-url ${PYTORCH_CUDA_INDEX_BASE_URL}/cu121 && \
     echo "Build dependencies installed"
 
-# Build configuration - optimized for datacenter GPUs
+# Build configuration - optimized for datacenter GPUs following vLLM v0.10.0 official patterns
 ARG max_jobs=2
 ENV MAX_JOBS=${max_jobs}
 ARG nvcc_threads=8
 ENV NVCC_THREADS=$nvcc_threads
 
-# Build vLLM wheel with reduced memory usage
+# Build vLLM wheel with reduced memory usage and optimal settings for datacenter GPUs
 ENV CCACHE_DIR=/root/.cache/ccache
 RUN --mount=type=cache,target=/root/.cache/ccache \
     --mount=type=cache,target=/root/.cache/uv \
-    echo "Starting vLLM wheel build..." && \
+    echo "Starting vLLM wheel build optimized for A100/A800/H20..." && \
     echo "Available memory:" && free -h && \
     echo "Available disk space:" && df -h && \
     python3 setup.py bdist_wheel --dist-dir=dist --py-limited-api=cp38 && \
     echo "Build completed. Final disk usage:" && df -h
 
-# Check wheel size (optional, can be disabled with build arg)
+# Check wheel size (optional, can be disabled with build arg) - following vLLM official check pattern
 COPY .buildkite/check-wheel-size.py check-wheel-size.py
 ARG VLLM_MAX_SIZE_MB=500
 ENV VLLM_MAX_SIZE_MB=$VLLM_MAX_SIZE_MB
@@ -136,10 +140,10 @@ ARG RUN_WHEEL_CHECK=false
 RUN if [ "$RUN_WHEEL_CHECK" = "true" ]; then \
         python3 check-wheel-size.py dist; \
     else \
-        echo "Skipping wheel size check"; \
+        echo "Skipping wheel size check (optimized for datacenter GPU build)"; \
     fi
 
-#################### vLLM INSTALLATION IMAGE ####################
+#################### vLLM INSTALLATION IMAGE (v0.10.0 optimized for datacenter GPUs) ####################
 FROM ${FINAL_BASE_IMAGE} AS vllm-base
 ARG CUDA_VERSION
 ARG PYTHON_VERSION
@@ -148,7 +152,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 ARG GET_PIP_URL
 
-# Install Python and dependencies with retry mechanism
+# Install Python and dependencies with retry mechanism following vLLM official pattern
 RUN echo 'tzdata tzdata/Areas select America' | debconf-set-selections \
     && echo 'tzdata tzdata/Zones/America select Los_Angeles' | debconf-set-selections \
     && apt-get update -y \
